@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>I love you &lt;3</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #000; font-family: Arial, sans-serif;
+  }
+  canvas { display:block; width:100vw; height:100vh; }
+  #start {
+    position: fixed; inset: 0; z-index: 10;
+    display:flex; align-items:center; justify-content:center;
+    background:#000;
+  }
+  #start button {
+    border:1px solid #1e90ff; color:#fff; background:#06111c;
+    padding:16px 28px; border-radius:999px; font-size:18px;
+    box-shadow:0 0 25px rgba(30,144,255,.35);
+    cursor:pointer;
+  }
+  #hint {
+    position:fixed; bottom:20px; left:0; right:0; text-align:center;
+    color:rgba(255,255,255,.45); font-size:12px; z-index:2;
+    pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="heart"></canvas>
+<div id="start"><button>💙 Toca para abrir 💙</button></div>
+<div id="hint">Toca la pantalla para comenzar</div>
+
+<audio id="music" src="love_you.mp3" preload="auto"></audio>
+
+<script>
+const canvas = document.getElementById("heart");
+const ctx = canvas.getContext("2d");
+const start = document.getElementById("start");
+const music = document.getElementById("music");
+const hint = document.getElementById("hint");
+
+const words = ["love you", "Love You", "LOVE YOU"];
+const colors = [
+  [70,130,180], [30,144,255], [0,191,255],
+  [100,149,237], [65,105,225]
+];
+
+let W, H, scale, particles = [], frame = 0, running = false;
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  canvas.width = Math.floor(W*dpr);
+  canvas.height = Math.floor(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  scale = Math.min(W/2000, H/1200) * 20;
+}
+window.addEventListener("resize", resize);
+resize();
+
+function heartXY(t) {
+  const x = 16 * Math.pow(Math.sin(t),3);
+  const y = 13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);
+  return [x,-y];
+}
+function toScreen(x,y) {
+  return [x*scale+W/2, y*scale+H/2];
+}
+function distance(a,b,c,d) { return Math.hypot(a-c,b-d); }
+
+function buildParticles() {
+  particles = [];
+  const placed = [];
+  const outlineN = 160;
+  for (let i=0;i<outlineN;i++) {
+    const t=i/outlineN*Math.PI*2;
+    const [bx,by]=heartXY(t), [sx,sy]=toScreen(bx,by);
+    if (placed.some(p=>distance(sx,sy,p[0],p[1])<Math.max(10,30*scale/20))) continue;
+    placed.push([sx,sy]);
+    particles.push(makeParticle(sx,sy,i,"outline"));
+  }
+
+  const fillN=130, placedFill=[], maxAttempts=fillN*80;
+  let attempts=0;
+  while (placedFill.length<fillN && attempts<maxAttempts) {
+    attempts++;
+    const t=Math.random()*Math.PI*2, r=Math.random()*0.86;
+    const [bx,by]=heartXY(t);
+    const [sx,sy]=toScreen(bx*r,by*r);
+    if (placedFill.some(p=>distance(sx,sy,p[0],p[1])<Math.max(14,46*scale/20))) continue;
+    placedFill.push([sx,sy]);
+    particles.push(makeParticle(sx,sy,Math.floor(Math.random()*321),"fill"));
+  }
+
+  const outlineSpan = particles.filter(p=>p.kind==="outline").reduce((m,p)=>Math.max(m,p.order),0);
+  const framesPerStep=1.6;
+  const fillStart=Math.floor(outlineSpan*framesPerStep)+30;
+  particles.forEach(p=>{
+    p.delay = p.kind==="outline" ? Math.floor(p.order*framesPerStep) : fillStart+p.order;
+  });
+  return fillStart;
+}
+
+function makeParticle(x,y,order,kind) {
+  return {
+    x,y,order,kind,word:words[Math.floor(Math.random()*words.length)],
+    color:colors[Math.floor(Math.random()*colors.length)],
+    alpha:0,flicker:Math.random()*Math.PI*2,
+    sizeMult:0.85+Math.random()*0.30
+  };
+}
+
+let fillStart=0;
+
+function drawText(p) {
+  if (p.alpha<=0) return;
+  const base = p.kind==="outline" ? 20 : 17;
+  const size = Math.max(8, base*p.sizeMult*(scale/20));
+  ctx.save();
+  ctx.font=`bold ${size}px Arial`;
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  const [r,g,b]=p.color;
+  const flick= p.alpha>=255 ? 0.75+0.25*Math.sin(frame*0.04+p.flicker) : 1;
+  const a=Math.floor(p.alpha*flick)/255;
+  ctx.fillStyle=`rgba(${r},${g},${b},${a})`;
+  ctx.shadowColor=`rgba(${r},${g},${b},${a})`;
+  ctx.shadowBlur=14*(scale/20);
+  ctx.fillText(p.word,p.x,p.y);
+  ctx.restore();
+}
+
+function animate() {
+  if (!running) return;
+  frame++;
+  ctx.clearRect(0,0,W,H);
+
+  particles.forEach(p=>{
+    if(frame>p.delay && p.alpha<255) p.alpha=Math.min(255,p.alpha+14+Math.floor(Math.random()*5));
+    drawText(p);
+  });
+
+  const centerStart=fillStart+200;
+  if(frame>centerStart) {
+    const progress=Math.min(1,(frame-centerStart)/60);
+    const alpha=255*(1-Math.exp(-progress*8));
+    const pulse=1+0.025*Math.sin(frame*0.05);
+    const size=Math.max(24,54*(scale/20)*pulse);
+    ctx.save();
+    ctx.font=`bold ${size}px Georgia`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.globalAlpha=alpha/255;
+    ctx.fillStyle="rgb(255,250,245)";
+    ctx.shadowColor="rgba(255,250,245,.8)";
+    ctx.shadowBlur=22*(scale/20);
+    ctx.fillText(" Love You ",W/2,H/2);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(animate);
+}
+
+start.addEventListener("click", async ()=>{
+  start.style.display="none";
+  hint.style.display="none";
+  running=true; frame=0; fillStart=buildParticles();
+  try { await music.play(); } catch(e) {}
+  animate();
+});
+</script>
+</body>
+</html>
